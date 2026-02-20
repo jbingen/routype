@@ -1,0 +1,37 @@
+{
+  "name": "route-contract",
+  "version": "0.1.0",
+  "description": "Type-safe REST without codegen or framework lock-in.",
+  "type": "module",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./zod": "./src/zod.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "zod": "^3.24.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "typescript",
+    "rest",
+    "type-safe",
+    "http",
+    "client",
+    "fetch"
+  ],
+  "license": "MIT"
+}
