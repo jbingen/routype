@@ -114,6 +114,15 @@ describe('createClient - path interpolation', () => {
     expect(url).toBe('https://api.example.com/users/hello%20world');
   });
 
+  it('stringifies numeric param values', async () => {
+    const fetchFn = mockFetch(200, { id: '42', name: 'Alice', email: 'a@example.com' });
+    const client = makeClient(fetchFn);
+    // @ts-expect-error - testing runtime coercion of number params
+    await client.getUser({ params: { id: 42 } });
+    const [url] = fetchFn.mock.calls[0]!;
+    expect(url).toBe('https://api.example.com/users/42');
+  });
+
   it('throws if a required param is missing', async () => {
     const fetchFn = mockFetch(200, {});
     const client = makeClient(fetchFn);
@@ -160,6 +169,18 @@ describe('createClient - request body', () => {
     expect((init?.headers as Headers).get('Content-Type')).toBe('application/json');
   });
 
+  it('preserves user-provided content-type', async () => {
+    const fetchFn = mockFetch(200, { id: '1', name: 'Bob', email: 'b@example.com' });
+    const client = createClient(contract, {
+      baseUrl: 'https://api.example.com',
+      fetch: fetchFn,
+      headers: { 'Content-Type': 'application/merge-patch+json' },
+    });
+    await client.createUser({ body: { name: 'Bob', email: 'b@example.com' } });
+    const [, init] = fetchFn.mock.calls[0]!;
+    expect((init?.headers as Headers).get('Content-Type')).toBe('application/merge-patch+json');
+  });
+
   it('sets method correctly', async () => {
     const fetchFn = mockFetch(200, { id: '1', name: 'Bob', email: 'b@example.com' });
     const client = makeClient(fetchFn);
@@ -182,6 +203,32 @@ describe('createClient - response handling', () => {
   it('returns parsed JSON on success', async () => {
     const user: User = { id: '1', name: 'Alice', email: 'a@example.com' };
     const fetchFn = mockFetch(200, user);
+    const client = makeClient(fetchFn);
+    const result = await client.getUser({ params: { id: '1' } });
+    expect(result).toEqual(user);
+  });
+
+  it('returns text for non-JSON content-type', async () => {
+    const fetchFn = mock(async (_url: string, _init?: RequestInit) =>
+      new Response('hello world', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    );
+    const client = makeClient(fetchFn);
+    // runtime returns text even though output is typed as { ok: boolean }
+    const result = await client.noArgRoute() as unknown;
+    expect(result).toBe('hello world');
+  });
+
+  it('parses application/vnd.api+json as JSON', async () => {
+    const user: User = { id: '1', name: 'Alice', email: 'a@example.com' };
+    const fetchFn = mock(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify(user), {
+        status: 200,
+        headers: { 'content-type': 'application/vnd.api+json' },
+      }),
+    );
     const client = makeClient(fetchFn);
     const result = await client.getUser({ params: { id: '1' } });
     expect(result).toEqual(user);
@@ -224,7 +271,7 @@ describe('createClient - options', () => {
     const client = createClient(contract, {
       baseUrl: 'https://api.example.com',
       fetch: fetchFn,
-      mapResponse: async (res) => (await res.json() as { data: unknown }).data,
+      mapResponse: async <T>(res: Response) => (await res.json() as { data: T }).data,
     });
     const result = await client.getUser({ params: { id: '1' } });
     expect(result).toEqual({ id: '1', name: 'Alice', email: 'a@example.com' });

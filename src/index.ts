@@ -12,7 +12,8 @@ export function t<T>(): T {
   return undefined as unknown as T;
 }
 
-export type QueryValue = string | number | boolean | null | undefined | Array<string | number | boolean>;
+type QueryPrimitive = string | number | boolean;
+export type QueryValue = QueryPrimitive | null | undefined | readonly QueryPrimitive[];
 
 export type RouteDefinition<
   TMethod extends HttpMethod = HttpMethod,
@@ -101,7 +102,7 @@ export type ClientOptions = {
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
   /** Default: res.json(). Override for envelope APIs: async (res) => (await res.json()).data */
-  mapResponse?: (res: Response) => Promise<unknown>;
+  mapResponse?: <T>(res: Response) => Promise<T>;
   /** Default: tries JSON, falls back to text. */
   parseError?: (res: Response) => Promise<unknown>;
 };
@@ -138,9 +139,9 @@ function buildMethod<TRoute extends AnyRoute>(
   fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
   options: ClientOptions,
 ): ClientMethod<TRoute> {
-  return (async (args: RouteArgsInput<TRoute> = {} as RouteArgsInput<TRoute>) => {
-    const { params, query, body } = args as {
-      params?: Record<string, string>;
+  return (async (args?: RouteArgsInput<TRoute>) => {
+    const { params, query, body } = (args ?? {}) as {
+      params?: Record<string, string | number | boolean>;
       query?: Record<string, QueryValue>;
       body?: unknown;
     };
@@ -157,7 +158,7 @@ function buildMethod<TRoute extends AnyRoute>(
     const headers = new Headers(staticHeaders);
 
     const isRawBody = body instanceof FormData || body instanceof Blob || body instanceof ReadableStream;
-    if (body !== undefined && !isRawBody) {
+    if (body !== undefined && !isRawBody && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json');
     }
 
@@ -179,20 +180,21 @@ function buildMethod<TRoute extends AnyRoute>(
       throw new HttpError(res.status, errBody);
     }
 
-    if (options.mapResponse) return options.mapResponse(res);
+    if (options.mapResponse) return options.mapResponse<TRoute['_output']>(res);
 
     if (res.status === 204) return undefined;
-    const ct = res.headers.get('content-type');
-    if (!ct) return undefined;
-    return res.json();
+    const ct = res.headers.get('content-type') ?? '';
+    if (ct.includes('application/json') || ct.includes('+json')) return res.json();
+    if (ct) return res.text();
+    return undefined;
   }) as ClientMethod<TRoute>;
 }
 
-function interpolatePath(path: string, params: Record<string, string>): string {
+function interpolatePath(path: string, params: Record<string, string | number | boolean>): string {
   return path.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, key) => {
     const val = params[key];
     if (val === undefined) throw new Error(`Missing path param: ${key}`);
-    return encodeURIComponent(val);
+    return encodeURIComponent(String(val));
   });
 }
 
