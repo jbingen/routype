@@ -1,5 +1,5 @@
 // Derives route definitions from Zod schemas so types and runtime validation
-// share a single source of truth. Import from 'route-contract/zod'.
+// share a single source of truth. Import from 'routype/zod'.
 
 import type { z } from 'zod';
 import { defineRoute, type HttpMethod, type RouteDefinition } from './index.js';

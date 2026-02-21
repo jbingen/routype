@@ -1,15 +1,25 @@
-# route-contract
+# 🛤️ routype
 
 Type-safe REST without codegen or framework lock-in.
 
-```
-npm install route-contract
-```
+For teams that already have REST endpoints and want a typed client without introducing RPC, OpenAPI, or a build step.
 
-Define your routes once, get a fully typed client. No code generation, no OpenAPI, no RPC abstraction. Just TypeScript inference.
+```
+npm install routype
+```
 
 ```typescript
-import { t, defineRoute, createContract, createClient } from 'route-contract';
+// before
+const user = await fetch(`/users/${id}`).then(r => r.json()) // any
+
+// after
+const user = await api.getUser({ params: { id } }) // User
+```
+
+You write a typed description of your routes and reuse it on both sides. That's the whole idea.
+
+```typescript
+import { t, defineRoute, createContract, createClient } from 'routype';
 
 type User = { id: string; name: string; email: string };
 
@@ -42,13 +52,34 @@ Params, query, body, and output are all inferred. Wrong shapes are compile error
 
 ---
 
-## Why this exists
+## Why
 
-tRPC gives you end-to-end type safety, but replaces your REST routes with an RPC abstraction. OpenAPI gives you contracts, but requires schemas and codegen. Both are powerful but heavy.
+Tools like tRPC and OpenAPI solve typed API communication by introducing new layers - RPC abstractions, schema files, codegen pipelines. Both work well, but both require buying into more architecture than the problem demands.
 
-Sometimes you just want: "here are my REST routes, give me a typed client."
+routype keeps your existing REST endpoints and adds types on top. You describe your routes with a lightweight helper. TypeScript infers the rest.
 
-That's all this does. Bring your own server, bring your own validator. We only connect the types.
+Bring your own server, bring your own validator. We only connect the types.
+
+| | routype | tRPC | OpenAPI |
+|---|---|---|---|
+| Typed client | ✅ | ✅ | ✅ |
+| Requires new architecture | ❌ | ✅ | ❌ |
+| Code generation | ❌ | ❌ | ✅ |
+| Runtime dependency | ❌ | ✅ | ❌ |
+| Works with existing REST | ✅ | ⚠️ | ✅ |
+
+---
+
+## No magic
+
+routype does not:
+
+- generate files or clients
+- inspect your server at runtime
+- require shared runtime code between client and server
+- change how your requests are handled
+
+It's a thin typed wrapper over `fetch`. The core is ~200 lines.
 
 ---
 
@@ -58,7 +89,7 @@ That's all this does. Bring your own server, bring your own validator. We only c
 
 ```typescript
 // contract.ts
-import { t, defineRoute, createContract } from 'route-contract';
+import { t, defineRoute, createContract } from 'routype';
 
 type User = { id: string; name: string; email: string };
 
@@ -97,7 +128,7 @@ export const contract = createContract({
 
 ```typescript
 // api.ts
-import { createClient } from 'route-contract';
+import { createClient } from 'routype';
 import { contract } from './contract';
 
 export const api = createClient(contract, {
@@ -118,7 +149,7 @@ const users = await api.listUsers({ query: { search: 'alice', limit: 10 } });
 const created = await api.createUser({ body: { name: 'Bob', email: 'b@b.com' } });
 //    ^? User
 
-// No-arg routes just work
+// routes with no input take no arguments
 const health = await api.healthCheck();
 ```
 
@@ -128,7 +159,7 @@ const health = await api.healthCheck();
 
 ### `t<T>()`
 
-Phantom type carrier. Returns `undefined` at runtime, tells TypeScript the type at compile time.
+Type helper. Tells TypeScript what shape to expect. Returns `undefined` at runtime - zero cost.
 
 ```typescript
 params: t<{ id: string }>()
@@ -141,16 +172,18 @@ output: t<User>()
 defineRoute({
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS',
   path: '/users/:id',
-  params?: t<Params>(),     // path params — values are stringified and URL-encoded
-  query?: t<Query>(),       // query string — primitives and arrays of primitives
-  body?: t<Body>(),         // request body — forbidden on GET/HEAD at the type level
+  params?: t<Params>(),     // path params - stringified and URL-encoded
+  query?: t<Query>(),       // query string - primitives and arrays of primitives
+  body?: t<Body>(),         // request body - forbidden on GET/HEAD at the type level
   output: t<Output>(),      // response type
 })
 ```
 
+Only `method`, `path`, and `output` are required. Omit params/query/body and the client won't ask for them.
+
 ### `createContract(routes)`
 
-Identity function that preserves literal types. Its value is the type.
+Identity function that preserves literal types. Exists for ergonomics and grouping.
 
 ```typescript
 const contract = createContract({ getUser, listUsers, createUser });
@@ -168,39 +201,39 @@ const client = createClient(contract, {
 });
 ```
 
-**`mapResponse`** — transform successful responses. Default parses JSON when content-type is `application/json` or `+json`, returns text for other content types, `undefined` for no content.
+**`mapResponse`** - transform successful responses. Default parses JSON when content-type includes `application/json` or `+json`, returns text for other content types, `undefined` for 204 or missing content-type.
 
 ```typescript
-// Envelope API
+// unwrap an envelope API
 createClient(contract, {
   baseUrl: '/api',
   mapResponse: async <T>(res: Response) => (await res.json() as { data: T }).data,
 });
 ```
 
-**`parseError`** — parse error response bodies for `HttpError`. Default tries JSON, falls back to text.
+**`parseError`** - parse error response bodies before attaching to `HttpError`. Default tries JSON, falls back to text.
 
-**`headers`** — static object or async function, merged into every request. Won't clobber a Content-Type you set explicitly.
+**`headers`** - static object or async function. Merged into every request. Won't overwrite a Content-Type you set explicitly.
 
 **Serialization:**
 
-- **params**: replaces `:token` segments, stringifies and URL-encodes values
-- **query**: `URLSearchParams`, repeats keys for arrays, omits `null`/`undefined`
-- **body**: `JSON.stringify` by default; passes through `FormData`, `Blob`, `ReadableStream` as-is
+- **params** - replaces `:token` segments, stringifies and URL-encodes values
+- **query** - `URLSearchParams`, repeats keys for arrays, omits `null`/`undefined`
+- **body** - `JSON.stringify` by default, passes through `FormData`/`Blob`/`ReadableStream` as-is
 
 ### `HttpError`
 
-Thrown on non-2xx responses.
+Thrown on non-2xx responses. Carries the status code and parsed body.
 
 ```typescript
-import { HttpError } from 'route-contract';
+import { HttpError } from 'routype';
 
 try {
   await api.getUser({ params: { id: '999' } });
 } catch (e) {
   if (e instanceof HttpError) {
-    console.log(e.status); // 404
-    console.log(e.body);   // parsed JSON or raw text
+    e.status // 404
+    e.body   // parsed JSON or raw text
   }
 }
 ```
@@ -209,12 +242,12 @@ try {
 
 ## Zod integration
 
-Optional. Import from `route-contract/zod` to derive types from Zod schemas. You get runtime validation and type inference from a single source of truth.
+Optional. Import from `routype/zod` to derive types from Zod schemas. One source of truth for both runtime validation and TypeScript types.
 
 ```typescript
-import { zRoute } from 'route-contract/zod';
+import { zRoute } from 'routype/zod';
 import { z } from 'zod';
-import { createContract, createClient } from 'route-contract';
+import { createContract, createClient } from 'routype';
 
 const getUser = zRoute({
   method: 'GET',
@@ -225,14 +258,14 @@ const getUser = zRoute({
 
 const contract = createContract({ getUser });
 
-// Server — validate at runtime
-app.get('/users/:id', (req, res) => {
+// server - validate at runtime
+app.get('/users/:id', async (req, res) => {
   const { id } = getUser.schemas.params.parse(req.params);
   const user = await db.users.findById(id);
   res.json(user);
 });
 
-// Client — fully typed
+// client - fully typed
 const api = createClient(contract, { baseUrl: '/api' });
 const user = await api.getUser({ params: { id: '1' } });
 //    ^? { id: string; name: string }
@@ -242,7 +275,7 @@ const user = await api.getUser({ params: { id: '1' } });
 
 ## Framework examples
 
-route-contract doesn't touch your server. Use the contract however fits your framework.
+routype doesn't touch your server. Use the contract types however fits your stack.
 
 ### Express
 
@@ -268,7 +301,7 @@ app.get('/users/:id', async (c) => {
 });
 ```
 
-### Next.js Route Handlers
+### Next.js route handlers
 
 ```typescript
 import { contract } from './contract';
@@ -281,10 +314,17 @@ export async function GET(req: Request, { params }: { params: typeof contract.ge
 
 ---
 
-## Design
+## Status
 
-- Zero dependencies. Bring your own validator if you want one.
+Early, but stable. The API surface is intentionally small and expected to remain mostly additive.
+
+---
+
+## Design decisions
+
+- Zero dependencies. Zod integration is a separate entrypoint.
 - No codegen, no schemas required, no build step, no decorators.
 - Works with any framework that speaks HTTP.
-- Runtime is a thin fetch wrapper. Types are compile-time only.
-- ~200 lines of TypeScript.
+- Types are compile-time only. Runtime is just fetch with path interpolation and query serialization.
+- `body` is forbidden on GET/HEAD at the type level.
+- Query values are constrained to primitives and arrays of primitives - matching what `URLSearchParams` can actually serialize.

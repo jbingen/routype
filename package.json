@@ -1,5 +1,5 @@
 {
-  "name": "route-contract",
+  "name": "routype",
   "version": "0.1.0",
   "description": "Type-safe REST without codegen or framework lock-in.",
   "type": "module",
