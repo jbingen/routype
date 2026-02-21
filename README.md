@@ -50,8 +50,6 @@ const created = await api.createUser({ body: { name: 'Alice', email: 'a@a.com' }
 
 Params, query, body, and output are all inferred. Wrong shapes are compile errors.
 
----
-
 ## Why
 
 Tools like tRPC and OpenAPI solve typed API communication by introducing new layers - RPC abstractions, schema files, codegen pipelines. Both work well, but both require buying into more architecture than the problem demands.
@@ -68,8 +66,6 @@ Bring your own server, bring your own validator. We only connect the types.
 | Runtime dependency | ❌ | ✅ | ❌ |
 | Works with existing REST | ✅ | ⚠️ | ✅ |
 
----
-
 ## No magic
 
 routype does not:
@@ -80,8 +76,6 @@ routype does not:
 - change how your requests are handled
 
 It's a thin typed wrapper over `fetch`. The core is ~200 lines.
-
----
 
 ## Quickstart
 
@@ -152,8 +146,6 @@ const created = await api.createUser({ body: { name: 'Bob', email: 'b@b.com' } }
 // routes with no input take no arguments
 const health = await api.healthCheck();
 ```
-
----
 
 ## API
 
@@ -238,8 +230,6 @@ try {
 }
 ```
 
----
-
 ## Zod integration
 
 Optional. Import from `routype/zod` to derive types from Zod schemas. One source of truth for both runtime validation and TypeScript types.
@@ -270,8 +260,6 @@ const api = createClient(contract, { baseUrl: '/api' });
 const user = await api.getUser({ params: { id: '1' } });
 //    ^? { id: string; name: string }
 ```
-
----
 
 ## Framework examples
 
@@ -312,13 +300,9 @@ export async function GET(req: Request, { params }: { params: typeof contract.ge
 }
 ```
 
----
-
 ## Status
 
 Early, but stable. The API surface is intentionally small and expected to remain mostly additive.
-
----
 
 ## Design decisions
 
