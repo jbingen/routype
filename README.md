@@ -1,5 +1,9 @@
 # 🛤️ routype
 
+[![npm version](https://img.shields.io/npm/v/routype)](https://www.npmjs.com/package/routype)
+[![npm bundle size](https://img.shields.io/bundlephobia/minzip/routype)](https://bundlephobia.com/package/routype)
+[![license](https://img.shields.io/github/license/jbingen/routype)](https://github.com/jbingen/routype/blob/main/LICENSE)
+
 Type-safe REST without codegen or framework lock-in.
 
 For teams that already have REST endpoints and want a typed client without introducing RPC, OpenAPI, or a build step.
