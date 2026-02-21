@@ -12,11 +12,13 @@ export function t<T>(): T {
   return undefined as unknown as T;
 }
 
+export type QueryValue = string | number | boolean | null | undefined | Array<string | number | boolean>;
+
 export type RouteDefinition<
   TMethod extends HttpMethod = HttpMethod,
   TPath extends string = string,
-  TParams = never,
-  TQuery = never,
+  TParams extends Record<string, any> | never = never,
+  TQuery extends Record<string, QueryValue> | never = never,
   TBody = never,
   TOutput = unknown,
 > = {
@@ -31,8 +33,8 @@ export type RouteDefinition<
 type DefineRouteConfig<
   TMethod extends HttpMethod,
   TPath extends string,
-  TParams,
-  TQuery,
+  TParams extends Record<string, any> | never,
+  TQuery extends Record<string, QueryValue> | never,
   TBody,
   TOutput,
 > = {
@@ -46,8 +48,8 @@ type DefineRouteConfig<
 export function defineRoute<
   TMethod extends HttpMethod,
   TPath extends string,
-  TParams = never,
-  TQuery = never,
+  TParams extends Record<string, any> | never = never,
+  TQuery extends Record<string, QueryValue> | never = never,
   TBody = never,
   TOutput = unknown,
 >(
@@ -56,10 +58,11 @@ export function defineRoute<
   return {
     method: config.method,
     path: config.path,
-    _params: config.params as TParams,
-    _query: config.query as TQuery,
-    _body: (config as { body?: TBody }).body as TBody,
-    _output: config.output as TOutput,
+    // phantom fields - accepted for inference, never stored
+    _params: undefined as unknown as TParams,
+    _query: undefined as unknown as TQuery,
+    _body: undefined as unknown as TBody,
+    _output: undefined as unknown as TOutput,
   };
 }
 
@@ -71,13 +74,17 @@ export function createContract<T extends Contract>(routes: T): T {
 }
 
 type IsNever<T> = [T] extends [never] ? true : false;
+type IsEmptyObject<T> = T extends object ? (keyof T extends never ? true : false) : false;
+
+// never and {} both mean "nothing here" for call-site ergonomics
+type IsAbsent<T> = IsNever<T> extends true ? true : IsEmptyObject<T>;
 
 type RouteArgsInput<TRoute extends AnyRoute> =
-  (IsNever<TRoute['_params']> extends true ? {} : { params: TRoute['_params'] }) &
-  (IsNever<TRoute['_query']> extends true ? {} : { query?: TRoute['_query'] }) &
-  (IsNever<TRoute['_body']> extends true ? {} : { body: TRoute['_body'] });
+  (IsAbsent<TRoute['_params']> extends true ? {} : { params: TRoute['_params'] }) &
+  (IsAbsent<TRoute['_query']> extends true ? {} : { query?: TRoute['_query'] }) &
+  (IsAbsent<TRoute['_body']> extends true ? {} : { body: TRoute['_body'] });
 
-// {} extends T when T is {} (all-never route), making the arg optional at call sites
+// {} extends T when T is {} (all-absent route), making the arg optional at call sites
 type ClientMethod<TRoute extends AnyRoute> =
   {} extends RouteArgsInput<TRoute>
     ? (args?: RouteArgsInput<TRoute>) => Promise<TRoute['_output']>
@@ -115,60 +122,70 @@ export function createClient<TContract extends Contract>(
 ): ClientMethodMap<TContract> {
   const client = {} as ClientMethodMap<TContract>;
   const fetchFn = options.fetch ?? globalThis.fetch;
+  if (!fetchFn) throw new Error('No fetch implementation available. Pass options.fetch or use a runtime with global fetch.');
   const baseUrl = options.baseUrl.replace(/\/$/, '');
 
   for (const [key, route] of Object.entries(contract)) {
-    (client as Record<string, unknown>)[key] = async (args: {
-      params?: Record<string, string>;
-      query?: Record<string, unknown>;
-      body?: unknown;
-    } = {}) => {
-      const { params, query, body } = args;
-
-      let path = params ? interpolatePath(route.path, params) : route.path;
-      if (query) {
-        const qs = buildQuery(query);
-        if (qs) path += '?' + qs;
-      }
-
-      const staticHeaders = typeof options.headers === 'function'
-        ? await options.headers()
-        : options.headers;
-      const headers = new Headers(staticHeaders);
-
-      const isRawBody = body instanceof FormData || body instanceof Blob || body instanceof ReadableStream;
-      if (body !== undefined && !isRawBody) {
-        headers.set('Content-Type', 'application/json');
-      }
-
-      const res = await fetchFn(baseUrl + path, {
-        method: route.method,
-        headers,
-        body:
-          body === undefined
-            ? undefined
-            : isRawBody
-              ? (body as BodyInit)
-              : JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const errBody = options.parseError
-          ? await options.parseError(res)
-          : await parseResponseBody(res);
-        throw new HttpError(res.status, errBody);
-      }
-
-      if (options.mapResponse) return options.mapResponse(res);
-
-      if (res.status === 204) return undefined;
-      const ct = res.headers.get('content-type');
-      if (!ct) return undefined;
-      return res.json();
-    };
+    (client as Record<string, unknown>)[key] = buildMethod(route, baseUrl, fetchFn, options);
   }
 
   return client;
+}
+
+function buildMethod<TRoute extends AnyRoute>(
+  route: TRoute,
+  baseUrl: string,
+  fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+  options: ClientOptions,
+): ClientMethod<TRoute> {
+  return (async (args: RouteArgsInput<TRoute> = {} as RouteArgsInput<TRoute>) => {
+    const { params, query, body } = args as {
+      params?: Record<string, string>;
+      query?: Record<string, QueryValue>;
+      body?: unknown;
+    };
+
+    let path = params ? interpolatePath(route.path, params) : route.path;
+    if (query) {
+      const qs = buildQuery(query);
+      if (qs) path += '?' + qs;
+    }
+
+    const staticHeaders = typeof options.headers === 'function'
+      ? await options.headers()
+      : options.headers;
+    const headers = new Headers(staticHeaders);
+
+    const isRawBody = body instanceof FormData || body instanceof Blob || body instanceof ReadableStream;
+    if (body !== undefined && !isRawBody) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    const res = await fetchFn(baseUrl + path, {
+      method: route.method,
+      headers,
+      body:
+        body === undefined
+          ? undefined
+          : isRawBody
+            ? (body as BodyInit)
+            : JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = options.parseError
+        ? await options.parseError(res)
+        : await parseResponseBody(res);
+      throw new HttpError(res.status, errBody);
+    }
+
+    if (options.mapResponse) return options.mapResponse(res);
+
+    if (res.status === 204) return undefined;
+    const ct = res.headers.get('content-type');
+    if (!ct) return undefined;
+    return res.json();
+  }) as ClientMethod<TRoute>;
 }
 
 function interpolatePath(path: string, params: Record<string, string>): string {
@@ -179,7 +196,7 @@ function interpolatePath(path: string, params: Record<string, string>): string {
   });
 }
 
-function buildQuery(query: Record<string, unknown>): string {
+function buildQuery(query: Record<string, QueryValue>): string {
   const p = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === null || value === undefined) continue;

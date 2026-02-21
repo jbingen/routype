@@ -54,20 +54,26 @@ export function zRoute<
 >(
   config: ZRouteConfig<TMethod, TPath, TParams, TQuery, TBody, TOutput>,
 ): ZRouteResult<TMethod, TPath, TParams, TQuery, TBody, TOutput> {
-  const route = defineRoute({
+  const base = {
     method: config.method,
     path: config.path,
     params: undefined as ZodOrNever<TParams>,
     query: undefined as ZodOrNever<TQuery>,
-    body: undefined as ZodOrNever<TBody>,
     output: undefined as z.infer<TOutput>,
-  });
+  };
+
+  // branch on method so GET/HEAD never see a body key, matching defineRoute's constraint
+  const route = (config.method === 'GET' || config.method === 'HEAD')
+    ? defineRoute(base as Parameters<typeof defineRoute>[0])
+    : defineRoute({ ...base, body: undefined as ZodOrNever<TBody> } as Parameters<typeof defineRoute>[0]);
 
   return Object.assign(route, {
     schemas: {
       params: config.params as TParams,
       query: config.query as TQuery,
-      body: (config as { body?: TBody }).body as TBody,
+      body: (config.method !== 'GET' && config.method !== 'HEAD'
+        ? (config as { body?: TBody }).body
+        : undefined) as TBody,
       output: config.output as TOutput,
     },
   }) as ZRouteResult<TMethod, TPath, TParams, TQuery, TBody, TOutput>;
