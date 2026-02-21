@@ -3,18 +3,45 @@
   "version": "0.1.0",
   "description": "Type-safe REST without codegen or framework lock-in.",
   "type": "module",
-  "module": "src/index.ts",
-  "main": "src/index.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./zod": "./src/zod.ts"
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./zod": {
+      "import": {
+        "types": "./dist/zod.d.ts",
+        "default": "./dist/zod.js"
+      },
+      "require": {
+        "types": "./dist/zod.d.cts",
+        "default": "./dist/zod.cjs"
+      }
+    }
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsup",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "tsup": "^8.5.1",
     "zod": "^3.24.2"
   },
   "peerDependencies": {
@@ -33,5 +60,9 @@
     "client",
     "fetch"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jbingen/routype.git"
+  }
 }
